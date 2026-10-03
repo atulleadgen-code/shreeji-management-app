@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Building2, ClipboardList, LoaderCircle, MapPin, Pencil, Plus, Search, TriangleAlert, X } from 'lucide-react';
+import { Building2, ClipboardList, FileSpreadsheet, LoaderCircle, MapPin, Pencil, Plus, Search, TriangleAlert, X } from 'lucide-react';
 import { apiRequest } from '@/lib/api-client';
 import { EditableRow, ResourceForm, ResourceKind } from './resource-form';
 import { useToast } from './toast-provider';
@@ -50,6 +50,7 @@ export function ResourceList({ endpoint, kind, title, columns }: ResourceListPro
   const [editingRow, setEditingRow] = useState<EditableRow | null>(null);
   const [refreshCount, setRefreshCount] = useState(0);
   const [search, setSearch] = useState('');
+  const [isExporting, setIsExporting] = useState(false);
   const { notify } = useToast();
 
   useEffect(() => {
@@ -100,6 +101,71 @@ export function ResourceList({ endpoint, kind, title, columns }: ResourceListPro
     setRefreshCount((count) => count + 1);
   }
 
+  async function exportPurchaseOrders() {
+    setIsExporting(true);
+
+    try {
+      const [{ Workbook }, { saveAs }] = await Promise.all([
+        import('exceljs'),
+        import('file-saver'),
+      ]);
+      const workbook = new Workbook();
+      const worksheet = workbook.addWorksheet('Purchase Orders', {
+        views: [{ state: 'frozen', ySplit: 1 }],
+      });
+      worksheet.columns = [
+        { header: 'Order ID', key: 'orderId', width: 24 },
+        { header: 'Client Name', key: 'clientName', width: 30 },
+        { header: 'Location', key: 'location', width: 26 },
+        { header: 'Date', key: 'date', width: 14, style: { numFmt: 'yyyy-mm-dd' } },
+        { header: 'Amount', key: 'amount', width: 16, style: { numFmt: '#,##0.00' } },
+        { header: 'Status', key: 'status', width: 18 },
+      ];
+
+      const header = worksheet.getRow(1);
+      header.height = 22;
+      header.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      header.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FF166534' },
+      };
+
+      const exportRows = rows.map((row) => {
+        const location = typeof row.location === 'object' && row.location !== null
+          ? row.location as Record<string, unknown>
+          : {};
+        const client = typeof location.client === 'object' && location.client !== null
+          ? location.client as Record<string, unknown>
+          : {};
+        const orderDate = typeof row.order_date === 'string' ? new Date(row.order_date) : null;
+        const amount = Number(row.total_amount);
+
+        return {
+          orderId: String(row.po_number ?? row.id),
+          clientName: String(client.name ?? ''),
+          location: String(location.name ?? ''),
+          date: orderDate && !Number.isNaN(orderDate.valueOf()) ? orderDate : null,
+          amount: row.total_amount == null || !Number.isFinite(amount) ? null : amount,
+          status: String(row.status ?? ''),
+        };
+      });
+      worksheet.addRows(exportRows);
+      worksheet.autoFilter = 'A1:F1';
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer as BlobPart], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+      saveAs(blob, 'purchase-orders.xlsx');
+      notify('success', 'Purchase orders exported to Excel.');
+    } catch (exportError) {
+      notify('error', exportError instanceof Error ? exportError.message : 'Unable to export purchase orders.');
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
   return (
     <section>
       <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
@@ -107,10 +173,25 @@ export function ResourceList({ endpoint, kind, title, columns }: ResourceListPro
           <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Records</p>
           <h1 className="text-2xl font-semibold tracking-normal text-slate-900">{title}</h1>
         </div>
-        <div className="flex items-center justify-between gap-4 sm:justify-end">
+        <div className="flex flex-wrap items-center justify-between gap-3 sm:justify-end">
           <span className="text-sm tabular-nums text-slate-500">{rows.length} records</span>
+          {kind === 'purchase-orders' && (
+            <button
+              className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-emerald-800 px-4 text-sm font-medium text-white shadow-sm transition-colors hover:bg-emerald-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={isLoading || isExporting || rows.length === 0}
+              onClick={exportPurchaseOrders}
+              type="button"
+            >
+              <FileSpreadsheet aria-hidden="true" size={16} />
+              {isExporting ? 'Preparing file...' : 'Download Excel'}
+            </button>
+          )}
           <button
-            className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-emerald-800 px-4 text-sm font-medium text-white shadow-sm transition-colors hover:bg-emerald-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-800"
+            className={`inline-flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-800 ${
+              kind === 'purchase-orders'
+                ? 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                : 'bg-emerald-800 text-white shadow-sm hover:bg-emerald-900'
+            }`}
             onClick={openCreateForm}
             type="button"
           >

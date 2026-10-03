@@ -19,7 +19,7 @@ export class PurchaseOrdersService {
 
   async findAll() {
     return prisma.purchaseOrder.findMany({
-      include: { location: true },
+      include: { location: { include: { client: true } } },
       orderBy: { created_at: 'desc' },
     });
   }

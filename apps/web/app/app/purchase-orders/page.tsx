@@ -6,6 +6,7 @@ export default function PurchaseOrdersPage() {
       kind="purchase-orders"
       columns={[
         { key: 'po_number', label: 'PO number' },
+        { key: 'location.client.name', label: 'Client' },
         { key: 'location.name', label: 'Location' },
         { key: 'order_date', label: 'Order date' },
         { key: 'total_amount', label: 'Total' },
