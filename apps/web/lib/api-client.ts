@@ -1,18 +1,50 @@
 import { getSupabaseClient } from './supabase';
 
-export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+function getApiBaseUrl() {
+  const configuredUrl = process.env.NEXT_PUBLIC_API_URL?.trim();
 
-  if (!apiUrl) {
-    throw new Error('NEXT_PUBLIC_API_URL must be set.');
+  if (!configuredUrl) {
+    throw new Error('API is not configured. Set NEXT_PUBLIC_API_URL to your backend URL.');
   }
 
-  const baseUrl = new URL(apiUrl);
-  const requestUrl = new URL(path.replace(/^\/+/, ''), `${baseUrl.toString().replace(/\/+$/, '')}/`);
+  const protocol = process.env.NODE_ENV === 'production' ? 'https' : 'http';
+  const normalizedUrl = /^https?:\/\//i.test(configuredUrl)
+    ? configuredUrl
+    : `${protocol}://${configuredUrl.replace(/^\/+/, '')}`;
+
+  try {
+    const baseUrl = new URL(normalizedUrl);
+
+    if (!['http:', 'https:'].includes(baseUrl.protocol) || !baseUrl.hostname) {
+      throw new Error();
+    }
+
+    if (baseUrl.search || baseUrl.hash) {
+      throw new Error();
+    }
+
+    return baseUrl;
+  } catch {
+    throw new Error('NEXT_PUBLIC_API_URL must be a valid HTTP(S) backend URL, such as http://localhost:3001.');
+  }
+}
+
+function getApiRequestUrl(path: string) {
+  const baseUrl = getApiBaseUrl();
+  const basePath = baseUrl.pathname.replace(/\/+$/, '');
+  const endpoint = path.trim().replace(/^\/+/, '');
+  const relativePath = basePath ? `${basePath}/${endpoint}` : endpoint;
+  const requestUrl = new URL(relativePath, baseUrl.origin);
 
   if (requestUrl.origin !== baseUrl.origin) {
     throw new Error('API requests must use the configured API origin.');
   }
+
+  return requestUrl;
+}
+
+export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const requestUrl = getApiRequestUrl(path);
 
   const { data, error } = await getSupabaseClient().auth.getSession();
 

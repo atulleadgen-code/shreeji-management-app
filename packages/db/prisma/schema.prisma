@@ -49,6 +49,7 @@ model PurchaseOrder {
   total_amount Decimal? @db.Decimal(12, 2)
   status       String   @default("draft")
   notes        String?
+  documentUrl  String?  @map("document_url")
   created_at   DateTime @default(now())
   updated_at   DateTime @updatedAt
   created_by   String?

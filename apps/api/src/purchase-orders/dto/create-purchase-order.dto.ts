@@ -5,5 +5,6 @@ export interface CreatePurchaseOrderDto {
   total_amount?: number | string | null;
   status?: string;
   notes?: string | null;
+  documentUrl?: string | null;
   created_by?: string | null;
 }

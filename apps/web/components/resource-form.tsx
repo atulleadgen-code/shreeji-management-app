@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { AlertCircle, LoaderCircle, X } from 'lucide-react';
 import { apiRequest } from '@/lib/api-client';
+import { removePoDocument, uploadPoDocument, validatePoDocument } from '@/lib/po-document-storage';
 import { useToast } from './toast-provider';
 
 export type ResourceKind = 'clients' | 'locations' | 'purchase-orders';
@@ -128,6 +129,8 @@ export function ResourceForm({ kind, title, record, onCancel, onSaved }: Resourc
   const [referenceError, setReferenceError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedDocument, setSelectedDocument] = useState<File | null>(null);
+  const [documentError, setDocumentError] = useState<string | null>(null);
   const { notify } = useToast();
   const referenceEndpoint = kind === 'locations' ? 'clients' : kind === 'purchase-orders' ? 'locations' : null;
 
@@ -185,15 +188,33 @@ export function ResourceForm({ kind, title, record, onCancel, onSaved }: Resourc
       }
     }
 
+    let uploadedDocumentPath: string | null = null;
+
     try {
+      if (kind === 'purchase-orders' && selectedDocument) {
+        await validatePoDocument(selectedDocument);
+        uploadedDocumentPath = await uploadPoDocument(selectedDocument);
+        payload.documentUrl = uploadedDocumentPath;
+      }
+
       await apiRequest<EditableRow>(record ? `${kind}/${record.id}` : kind, {
         method: record ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
+
+      if (record && uploadedDocumentPath && typeof record.documentUrl === 'string') {
+        void removePoDocument(record.documentUrl).catch(() => {
+          notify('error', 'The old PDF could not be removed from storage.');
+        });
+      }
+
       notify('success', `${title} ${record ? 'updated' : 'created'} successfully.`);
       onSaved();
     } catch (saveError) {
+      if (uploadedDocumentPath) {
+        void removePoDocument(uploadedDocumentPath).catch(() => undefined);
+      }
       const message = saveError instanceof Error ? saveError.message : 'Unable to save record.';
       setError(message);
       notify('error', message);
@@ -276,6 +297,32 @@ export function ResourceForm({ kind, title, record, onCancel, onSaved }: Resourc
               )}
             </label>
           ))}
+            {kind === 'purchase-orders' && (
+              <label className="col-span-full flex flex-col gap-1.5 text-sm font-medium text-slate-700">
+                <span>Upload PO Document (PDF, max 5MB)</span>
+                <input
+                  accept="application/pdf"
+                  className="min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1 file:text-xs file:font-medium file:text-slate-700"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0] ?? null;
+                    setDocumentError(null);
+                    if (!file) {
+                      setSelectedDocument(null);
+                      return;
+                    }
+                    setSelectedDocument(file);
+                    void validatePoDocument(file).catch((validationError: unknown) => {
+                      setDocumentError(validationError instanceof Error ? validationError.message : 'Invalid PDF file.');
+                    });
+                  }}
+                  type="file"
+                />
+                {documentError && <span className="text-xs font-normal text-red-700" role="alert">{documentError}</span>}
+                {!documentError && selectedDocument && (
+                  <span className="text-xs font-normal text-slate-500">{selectedDocument.name}</span>
+                )}
+              </label>
+            )}
           </div>
           {error && (
             <p className="mx-6 mb-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700 sm:mx-7" role="alert">
@@ -293,7 +340,7 @@ export function ResourceForm({ kind, title, record, onCancel, onSaved }: Resourc
             </button>
             <button
               className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-emerald-800 px-4 text-sm font-medium text-white shadow-sm transition-colors hover:bg-emerald-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={isSaving || isLoadingReferences || Boolean(referenceError) || hasNoRequiredChoices}
+              disabled={isSaving || isLoadingReferences || Boolean(referenceError) || Boolean(documentError) || hasNoRequiredChoices}
               type="submit"
             >
               {isSaving && <LoaderCircle aria-hidden="true" className="animate-spin" size={15} />}

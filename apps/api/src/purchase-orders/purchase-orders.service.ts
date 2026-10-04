@@ -46,6 +46,7 @@ export class PurchaseOrdersService {
         total_amount: dto.total_amount ?? null,
         status: dto.status ?? 'draft',
         notes: dto.notes ?? null,
+        documentUrl: dto.documentUrl ?? null,
         created_by: dto.created_by ?? null,
       },
     });
@@ -63,6 +64,7 @@ export class PurchaseOrdersService {
         total_amount: dto.total_amount ?? undefined,
         status: dto.status ?? undefined,
         notes: dto.notes ?? undefined,
+        documentUrl: dto.documentUrl ?? undefined,
         created_by: dto.created_by ?? undefined,
       },
     });
