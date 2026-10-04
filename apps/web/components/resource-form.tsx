@@ -4,9 +4,10 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { AlertCircle, LoaderCircle, X } from 'lucide-react';
 import { apiRequest } from '@/lib/api-client';
 import { removePoDocument, uploadPoDocument, validatePoDocument } from '@/lib/po-document-storage';
+import { removeWorkerDocument, uploadWorkerDocument, validateWorkerDocument } from '@/lib/worker-document-storage';
 import { useToast } from './toast-provider';
 
-export type ResourceKind = 'clients' | 'locations' | 'purchase-orders';
+export type ResourceKind = 'clients' | 'locations' | 'purchase-orders' | 'workers';
 export type EditableRow = Record<string, unknown> & { id: string };
 
 type ReferenceRow = {
@@ -23,6 +24,7 @@ type FieldDefinition = {
   required?: boolean;
   min?: string;
   step?: string;
+  placeholder?: string;
   choices?: Choice[];
 };
 
@@ -40,7 +42,9 @@ function initialValues(kind: ResourceKind, record: EditableRow | null) {
     ? ['name', 'email', 'phone', 'status']
     : kind === 'locations'
       ? ['client_id', 'name', 'address', 'city', 'state', 'postal_code', 'country', 'status']
-      : ['location_id', 'po_number', 'order_date', 'total_amount', 'status', 'notes'];
+      : kind === 'workers'
+        ? ['name', 'phone', 'aadharNumber', 'skill', 'status', 'dailyWage', 'locationId']
+        : ['location_id', 'po_number', 'order_date', 'total_amount', 'status', 'notes'];
 
   for (const name of names) {
     const value = record?.[name];
@@ -52,7 +56,7 @@ function initialValues(kind: ResourceKind, record: EditableRow | null) {
   }
 
   if (!record) {
-    values.status = kind === 'purchase-orders' ? 'draft' : 'active';
+    values.status = kind === 'purchase-orders' ? 'draft' : kind === 'workers' ? 'ACTIVE' : 'active';
     if (kind === 'purchase-orders') {
       values.order_date = new Date().toISOString().slice(0, 10);
     }
@@ -70,10 +74,45 @@ function fieldDefinitions(kind: ResourceKind, references: ReferenceRow[]): Field
         { value: 'completed', label: 'Completed' },
         { value: 'cancelled', label: 'Cancelled' },
       ]
-    : [
+    : kind === 'workers'
+      ? [
+          { value: 'ACTIVE', label: 'Active' },
+          { value: 'ON_LEAVE', label: 'On leave' },
+          { value: 'INACTIVE', label: 'Inactive' },
+        ]
+      : [
         { value: 'active', label: 'Active' },
         { value: 'inactive', label: 'Inactive' },
       ];
+
+  if (kind === 'workers') {
+    const skillChoices = [
+      { value: 'WELDER', label: 'Welder' },
+      { value: 'ELECTRICIAN', label: 'Electrician' },
+      { value: 'FITTER', label: 'Fitter' },
+      { value: 'MILLWRIGHT', label: 'Millwright' },
+      { value: 'OPERATOR', label: 'Operator' },
+      { value: 'HELPER', label: 'Helper' },
+      { value: 'UNSKILLED', label: 'Unskilled' },
+      { value: 'OTHER', label: 'Other' },
+    ];
+
+    return [
+      { name: 'name', label: 'Name', type: 'text', required: true },
+      { name: 'phone', label: 'Phone', type: 'tel' },
+      { name: 'aadharNumber', label: 'Aadhaar number', type: 'text' },
+      { name: 'skill', label: 'Skill', type: 'select', required: true, choices: skillChoices },
+      { name: 'status', label: 'Status', type: 'select', choices: statusChoices },
+      { name: 'dailyWage', label: 'Daily wage', type: 'number', min: '0', step: '0.01' },
+      {
+        name: 'locationId',
+        label: 'Current location',
+        type: 'select',
+        placeholder: 'Unassigned',
+        choices: references.map((location) => ({ value: location.id, label: location.name })),
+      },
+    ];
+  }
 
   if (kind === 'clients') {
     return [
@@ -132,7 +171,11 @@ export function ResourceForm({ kind, title, record, onCancel, onSaved }: Resourc
   const [selectedDocument, setSelectedDocument] = useState<File | null>(null);
   const [documentError, setDocumentError] = useState<string | null>(null);
   const { notify } = useToast();
-  const referenceEndpoint = kind === 'locations' ? 'clients' : kind === 'purchase-orders' ? 'locations' : null;
+  const referenceEndpoint = kind === 'locations'
+    ? 'clients'
+    : kind === 'purchase-orders' || kind === 'workers'
+      ? 'locations'
+      : null;
 
   useEffect(() => {
     if (!referenceEndpoint) {
@@ -172,10 +215,13 @@ export function ResourceForm({ kind, title, record, onCancel, onSaved }: Resourc
     setIsSaving(true);
     setError(null);
 
-    const payload: Record<string, string | number> = {};
+    const payload: Record<string, string | number | null> = {};
     for (const field of fields) {
       const value = values[field.name]?.trim();
       if (!value) {
+        if (kind === 'workers' && field.name === 'locationId') {
+          payload.locationId = null;
+        }
         continue;
       }
 
@@ -191,10 +237,16 @@ export function ResourceForm({ kind, title, record, onCancel, onSaved }: Resourc
     let uploadedDocumentPath: string | null = null;
 
     try {
-      if (kind === 'purchase-orders' && selectedDocument) {
+      if (selectedDocument && kind === 'purchase-orders') {
         await validatePoDocument(selectedDocument);
-        uploadedDocumentPath = await uploadPoDocument(selectedDocument);
-        payload.documentUrl = uploadedDocumentPath;
+        const documentPath = await uploadPoDocument(selectedDocument);
+        uploadedDocumentPath = documentPath;
+        payload.documentUrl = documentPath;
+      } else if (selectedDocument && kind === 'workers') {
+        await validateWorkerDocument(selectedDocument);
+        const documentPath = await uploadWorkerDocument(selectedDocument);
+        uploadedDocumentPath = documentPath;
+        payload.documentUrl = documentPath;
       }
 
       await apiRequest<EditableRow>(record ? `${kind}/${record.id}` : kind, {
@@ -204,8 +256,9 @@ export function ResourceForm({ kind, title, record, onCancel, onSaved }: Resourc
       });
 
       if (record && uploadedDocumentPath && typeof record.documentUrl === 'string') {
-        void removePoDocument(record.documentUrl).catch(() => {
-          notify('error', 'The old PDF could not be removed from storage.');
+        const removeOldDocument = kind === 'workers' ? removeWorkerDocument : removePoDocument;
+        void removeOldDocument(record.documentUrl).catch(() => {
+          notify('error', 'The old document could not be removed from storage.');
         });
       }
 
@@ -213,7 +266,8 @@ export function ResourceForm({ kind, title, record, onCancel, onSaved }: Resourc
       onSaved();
     } catch (saveError) {
       if (uploadedDocumentPath) {
-        void removePoDocument(uploadedDocumentPath).catch(() => undefined);
+        const removeUploadedDocument = kind === 'workers' ? removeWorkerDocument : removePoDocument;
+        void removeUploadedDocument(uploadedDocumentPath).catch(() => undefined);
       }
       const message = saveError instanceof Error ? saveError.message : 'Unable to save record.';
       setError(message);
@@ -271,7 +325,7 @@ export function ResourceForm({ kind, title, record, onCancel, onSaved }: Resourc
                   required={field.required}
                   value={values[field.name] ?? ''}
                 >
-                  <option value="">Select {field.label.toLowerCase()}</option>
+                  <option value="">{field.placeholder ?? `Select ${field.label.toLowerCase()}`}</option>
                   {field.choices?.map((choice) => (
                     <option key={choice.value} value={choice.value}>{choice.label}</option>
                   ))}
@@ -317,6 +371,35 @@ export function ResourceForm({ kind, title, record, onCancel, onSaved }: Resourc
                   }}
                   type="file"
                 />
+                {documentError && <span className="text-xs font-normal text-red-700" role="alert">{documentError}</span>}
+                {!documentError && selectedDocument && (
+                  <span className="text-xs font-normal text-slate-500">{selectedDocument.name}</span>
+                )}
+              </label>
+            )}
+            {kind === 'workers' && (
+              <label className="col-span-full flex flex-col gap-1.5 text-sm font-medium text-slate-700">
+                <span>ID Proof <span className="font-normal text-slate-400">(PDF or image, max 5 MB)</span></span>
+                <input
+                  accept="application/pdf,image/jpeg,image/png,image/webp"
+                  className="min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1 file:text-xs file:font-medium file:text-slate-700"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0] ?? null;
+                    setDocumentError(null);
+                    if (!file) {
+                      setSelectedDocument(null);
+                      return;
+                    }
+                    setSelectedDocument(file);
+                    void validateWorkerDocument(file).catch((validationError: unknown) => {
+                      setDocumentError(validationError instanceof Error ? validationError.message : 'Invalid ID proof file.');
+                    });
+                  }}
+                  type="file"
+                />
+                {typeof record?.documentUrl === 'string' && record.documentUrl && !selectedDocument && (
+                  <span className="text-xs font-normal text-slate-500">Existing ID proof will be kept unless replaced.</span>
+                )}
                 {documentError && <span className="text-xs font-normal text-red-700" role="alert">{documentError}</span>}
                 {!documentError && selectedDocument && (
                   <span className="text-xs font-normal text-slate-500">{selectedDocument.name}</span>

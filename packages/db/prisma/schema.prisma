@@ -8,14 +8,31 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+enum WorkerSkill {
+  WELDER
+  ELECTRICIAN
+  FITTER
+  MILLWRIGHT
+  OPERATOR
+  HELPER
+  UNSKILLED
+  OTHER
+}
+
+enum WorkerStatus {
+  ACTIVE
+  ON_LEAVE
+  INACTIVE
+}
+
 model Client {
-  id         String    @id @default(cuid())
+  id         String     @id @default(cuid())
   name       String
   email      String?
   phone      String?
-  status     String    @default("active")
-  created_at DateTime  @default(now())
-  updated_at DateTime  @updatedAt
+  status     String     @default("active")
+  created_at DateTime   @default(now())
+  updated_at DateTime   @updatedAt
   created_by String?
   locations  Location[]
 
@@ -23,20 +40,21 @@ model Client {
 }
 
 model Location {
-  id            String         @id @default(cuid())
-  client_id     String
-  name          String
-  address       String?
-  city          String?
-  state         String?
-  postal_code   String?
-  country       String?
-  status        String         @default("active")
-  created_at    DateTime       @default(now())
-  updated_at    DateTime       @updatedAt
-  created_by    String?
-  client        Client         @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  id              String          @id @default(cuid())
+  client_id       String
+  name            String
+  address         String?
+  city            String?
+  state           String?
+  postal_code     String?
+  country         String?
+  status          String          @default("active")
+  created_at      DateTime        @default(now())
+  updated_at      DateTime        @updatedAt
+  created_by      String?
+  client          Client          @relation(fields: [client_id], references: [id], onDelete: Cascade)
   purchase_orders PurchaseOrder[]
+  workers         Worker[]
 
   @@map("locations")
 }
@@ -56,4 +74,21 @@ model PurchaseOrder {
   location     Location @relation(fields: [location_id], references: [id], onDelete: Cascade)
 
   @@map("purchase_orders")
+}
+
+model Worker {
+  id           String       @id @default(cuid())
+  name         String
+  phone        String?
+  aadharNumber String?      @map("aadhar_number")
+  skill        WorkerSkill
+  status       WorkerStatus @default(ACTIVE)
+  dailyWage    Float?       @map("daily_wage")
+  documentUrl  String?      @map("document_url")
+  locationId   String?      @map("location_id")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+  location     Location?    @relation(fields: [locationId], references: [id], onDelete: SetNull)
+
+  @@map("workers")
 }

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
-import { BriefcaseBusiness, Building2, ClipboardList, LayoutDashboard, LogOut, MapPin } from 'lucide-react';
+import { BriefcaseBusiness, Building2, ClipboardList, HardHat, LayoutDashboard, LogOut, MapPin } from 'lucide-react';
 import { useAuth } from '../providers';
 
 const navigation = [
@@ -11,6 +11,7 @@ const navigation = [
   { href: '/app/clients', label: 'Clients', icon: Building2 },
   { href: '/app/locations', label: 'Locations', icon: MapPin },
   { href: '/app/purchase-orders', label: 'Purchase orders', icon: ClipboardList },
+  { href: '/app/workers', label: 'Workers', icon: HardHat },
 ];
 
 export default function ProtectedAppLayout({ children }: { children: ReactNode }) {

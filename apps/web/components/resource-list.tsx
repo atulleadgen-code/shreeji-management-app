@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Building2, ClipboardList, Download, Eye, FileSpreadsheet, LoaderCircle, MapPin, Pencil, Plus, Search, TriangleAlert, X } from 'lucide-react';
+import { Building2, ClipboardList, Eye, FileSpreadsheet, FileText, HardHat, LoaderCircle, MapPin, Pencil, Plus, Search, TriangleAlert, X } from 'lucide-react';
 import { apiRequest } from '@/lib/api-client';
+import { generateInvoice } from '@/lib/invoice-generator';
 import { getPoDocumentSignedUrl } from '@/lib/po-document-storage';
 import { EditableRow, ResourceForm, ResourceKind } from './resource-form';
 import { useToast } from './toast-provider';
@@ -40,6 +41,7 @@ function readField(row: EditableRow, path: string) {
 function ResourceIcon({ kind, size = 21 }: { kind: ResourceKind; size?: number }) {
   if (kind === 'clients') return <Building2 aria-hidden="true" size={size} />;
   if (kind === 'locations') return <MapPin aria-hidden="true" size={size} />;
+  if (kind === 'workers') return <HardHat aria-hidden="true" size={size} />;
   return <ClipboardList aria-hidden="true" size={size} />;
 }
 
@@ -169,42 +171,12 @@ export function ResourceList({ endpoint, kind, title, columns }: ResourceListPro
     }
   }
 
-  async function downloadPurchaseOrderInvoice(row: EditableRow) {
+  async function handleGenerateInvoice(row: EditableRow) {
     setPdfExportingIds((current) => current.includes(row.id) ? current : [...current, row.id]);
 
     try {
-      const [{ pdf }, { saveAs }, { default: PurchaseOrderInvoice }] = await Promise.all([
-        import('@react-pdf/renderer'),
-        import('file-saver'),
-        import('./purchase-order-invoice'),
-      ]);
-      const location = typeof row.location === 'object' && row.location !== null
-        ? row.location as Record<string, unknown>
-        : {};
-      const client = typeof location.client === 'object' && location.client !== null
-        ? location.client as Record<string, unknown>
-        : {};
-      const dateValue = typeof row.order_date === 'string' ? new Date(row.order_date) : null;
-      const amountValue = Number(row.total_amount);
       const orderId = String(row.po_number ?? row.id);
-      const amount = row.total_amount == null || !Number.isFinite(amountValue)
-        ? ''
-        : new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amountValue);
-      const document = (
-        <PurchaseOrderInvoice
-          order={{
-            orderId,
-            clientName: String(client.name ?? ''),
-            location: String(location.name ?? ''),
-            date: dateValue && !Number.isNaN(dateValue.valueOf()) ? dateValue.toLocaleDateString() : '',
-            amount,
-            status: String(row.status ?? ''),
-          }}
-        />
-      );
-      const blob = await pdf(document).toBlob();
-      const fileId = orderId.replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '') || row.id;
-      saveAs(blob, `invoice-${fileId}.pdf`);
+      await generateInvoice(row);
       notify('success', `Invoice ${orderId} downloaded.`);
     } catch (exportError) {
       notify('error', exportError instanceof Error ? exportError.message : 'Unable to generate the invoice PDF.');
@@ -385,16 +357,16 @@ export function ResourceList({ endpoint, kind, title, columns }: ResourceListPro
                             {kind === 'purchase-orders' && (
                               <>
                               <button
-                                aria-label={`Download PDF invoice for ${String(row.po_number ?? row.id)}`}
+                                aria-label={`Generate Invoice for ${String(row.po_number ?? row.id)}`}
                                 className="inline-flex size-9 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-emerald-50 hover:text-emerald-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-800 disabled:cursor-wait disabled:opacity-50"
                                 disabled={pdfExportingIds.includes(row.id)}
-                                onClick={() => downloadPurchaseOrderInvoice(row)}
-                                title="Download PDF invoice"
+                                onClick={() => handleGenerateInvoice(row)}
+                                title="Generate Invoice"
                                 type="button"
                               >
                                 {pdfExportingIds.includes(row.id)
                                   ? <LoaderCircle aria-hidden="true" className="animate-spin" size={16} />
-                                  : <Download aria-hidden="true" size={16} />}
+                                  : <FileText aria-hidden="true" size={16} />}
                               </button>
                               {typeof row.documentUrl === 'string' && row.documentUrl.trim() && (
                                 <button
