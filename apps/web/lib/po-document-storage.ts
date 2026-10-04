@@ -46,29 +46,57 @@ export async function uploadPoDocument(file: File) {
   return data.path;
 }
 
-function validateStoragePath(path: string) {
-  if (!path || path.startsWith('/') || path.split('/').some((segment) => !segment || segment === '.' || segment === '..')) {
+export function normalizePoDocumentPath(path: string) {
+  const trimmedPath = path.trim().replace(/^\/+/, '');
+  const bucketPrefix = `${PO_DOCUMENT_BUCKET}/`;
+  const objectPath = trimmedPath.startsWith(bucketPrefix)
+    ? trimmedPath.slice(bucketPrefix.length)
+    : trimmedPath;
+
+  if (
+    !objectPath ||
+    /^https?:\/\//i.test(objectPath) ||
+    objectPath.split('/').some((segment) => !segment || segment === '.' || segment === '..')
+  ) {
     throw new Error('The Purchase Order document path is invalid.');
   }
+
+  return objectPath;
 }
 
 export async function getPoDocumentSignedUrl(path: string) {
-  validateStoragePath(path);
+  const objectPath = normalizePoDocumentPath(path);
   const { data, error } = await getSupabaseClient()
     .storage
     .from(PO_DOCUMENT_BUCKET)
-    .createSignedUrl(path, 120);
+    .createSignedUrl(objectPath, 120);
 
   if (error) {
     throw new Error(`Unable to open Purchase Order PDF: ${error.message}`);
   }
 
-  return data.signedUrl;
+  const signedUrl = data?.signedUrl?.trim();
+  if (!signedUrl) {
+    throw new Error('Supabase did not return a signed URL for this Purchase Order PDF.');
+  }
+
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(signedUrl);
+  } catch {
+    throw new Error('Supabase returned an invalid signed URL for this Purchase Order PDF.');
+  }
+
+  if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+    throw new Error('Supabase returned an unsupported signed URL protocol.');
+  }
+
+  return parsedUrl.toString();
 }
 
 export async function removePoDocument(path: string) {
-  validateStoragePath(path);
-  const { error } = await getSupabaseClient().storage.from(PO_DOCUMENT_BUCKET).remove([path]);
+  const objectPath = normalizePoDocumentPath(path);
+  const { error } = await getSupabaseClient().storage.from(PO_DOCUMENT_BUCKET).remove([objectPath]);
 
   if (error) {
     throw new Error(`Unable to remove uploaded Purchase Order PDF: ${error.message}`);

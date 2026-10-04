@@ -215,21 +215,22 @@ export function ResourceList({ endpoint, kind, title, columns }: ResourceListPro
 
   async function viewPurchaseOrderDocument(row: EditableRow) {
     const documentPath = typeof row.documentUrl === 'string' ? row.documentUrl.trim() : '';
-    if (!documentPath) return;
-
-    const tab = window.open('about:blank', '_blank');
-    if (!tab) {
-      notify('error', 'Allow pop-ups to view the Purchase Order PDF.');
+    if (!documentPath) {
+      notify('error', 'This Purchase Order has no attached PDF.');
       return;
     }
-    tab.opener = null;
+
     setDocumentOpeningIds((current) => current.includes(row.id) ? current : [...current, row.id]);
 
     try {
       const signedUrl = await getPoDocumentSignedUrl(documentPath);
-      tab.location.replace(signedUrl);
+      const tab = window.open(signedUrl, '_blank');
+      if (!tab) {
+        notify('error', 'Allow pop-ups to view the Purchase Order PDF.');
+      } else {
+        tab.opener = null;
+      }
     } catch (viewError) {
-      tab.close();
       notify('error', viewError instanceof Error ? viewError.message : 'Unable to open Purchase Order PDF.');
     } finally {
       setDocumentOpeningIds((current) => current.filter((id) => id !== row.id));
